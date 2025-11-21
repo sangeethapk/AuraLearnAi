@@ -9,6 +9,9 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import CharacterTextSplitter
+from streamlit_lottie import st_lottie
+import requests
+
 
 # ✅ Load environment variables
 load_dotenv()
@@ -107,6 +110,17 @@ def generate_fib(full_text, num_questions=5):
     model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(prompt)
     return response.text
+
+
+# ✅ Utility: Load Lottie animation
+def load_lottieurl(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+# Example teacher animation (replace with any Lottie URL you like)
+lottie_teacher = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_4kx2q32n.json")
 
 # ✅ Safe JSON parser
 def safe_json_parse(raw_text):
@@ -216,11 +230,13 @@ if uploaded_file:
                 else:
                     st.error(f"Q{i+1}: Wrong ❌ (Correct: {q['answer']})")
             st.markdown(f"### 🎯 FIB Score: {score}/{len(fibs)}")
+# ✅ Q&A Section
+query = st.text_input("Ask a question about the PDF:")
+if query:
+    with st.spinner("Thinking..."):
+        retrieved_docs = retriever.invoke(query)
+        response = generate_rag_answer(query, retrieved_docs)
 
-    # ✅ Q&A Section
-    query = st.text_input("Ask a question about the PDF:")
-    if query:
-        with st.spinner("Thinking..."):
-            retrieved_docs = retriever.invoke(query)
-            response = generate_rag_answer(query, retrieved_docs)
-        st.markdown(f"**Answer:** {response}")
+    st.markdown("### 👩‍🏫 Teacher's Answer")
+    st_lottie(lottie_teacher, height=200, key="teacher_chat")  # animated teacher avatar
+    st.write(response)
