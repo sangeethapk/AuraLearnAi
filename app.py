@@ -13,7 +13,6 @@ from langchain_text_splitters import CharacterTextSplitter
 load_dotenv()
 
 # ✅ Set your Gemini API key
-#genai.configure(api_key="your Google_API_key")
 api_key = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 
@@ -29,7 +28,7 @@ def process_pdf(uploaded_file):
     splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = splitter.split_text(text)
     documents = [Document(page_content=chunk) for chunk in chunks]
-    return documents
+    return documents, text   # return both chunks and full text
 
 # ✅ Create Chroma vector store
 def create_vector_store(documents):
@@ -55,8 +54,21 @@ def generate_rag_answer(question, retrieved_chunks):
 
     model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(prompt)
+    return response.text
 
+# ✅ Gemini-powered summarizer
+def generate_summary(full_text):
+    prompt = f"""
+    You are an AI summarizer. Summarize the following textbook content into a clear,
+    concise summary highlighting the key points:
 
+    Text:
+    {full_text}
+
+    Summary:
+    """
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    response = model.generate_content(prompt)
     return response.text
 
 # ✅ Streamlit UI
@@ -67,11 +79,19 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
 if uploaded_file:
     with st.spinner("Processing PDF..."):
-        documents = process_pdf(uploaded_file)
+        documents, full_text = process_pdf(uploaded_file)
         vectorstore = create_vector_store(documents)
         retriever = vectorstore.as_retriever()
     st.success("PDF processed! Ask your questions below.")
 
+    # ✅ Summary Button
+    if st.button("Generate Summary"):
+        with st.spinner("Summarizing PDF..."):
+            summary = generate_summary(full_text)
+        st.markdown("### 📌 Summary of PDF")
+        st.write(summary)
+
+    # ✅ Q&A Section
     query = st.text_input("Ask a question about the PDF:")
     if query:
         with st.spinner("Thinking..."):
