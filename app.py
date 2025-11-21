@@ -68,7 +68,7 @@ def generate_summary(full_text):
     response = model.generate_content(prompt)
     return response.text
 
-# ✅ Gemini-powered MCQ generator (structured JSON-like output)
+# ✅ Gemini-powered MCQ generator
 def generate_mcqs(full_text, num_questions=5):
     prompt = f"""
     You are an exam question generator. Create {num_questions} multiple-choice questions (MCQs)
@@ -87,13 +87,34 @@ def generate_mcqs(full_text, num_questions=5):
     response = model.generate_content(prompt)
     return response.text
 
+# ✅ Gemini-powered Fill-in-the-Blanks generator
+def generate_fib(full_text, num_questions=5):
+    prompt = f"""
+    You are an exam question generator. Create {num_questions} fill-in-the-blanks questions
+    based ONLY on the textbook content below. Each question must have:
+    - question (string with a blank represented by '_____')
+    - answer (string with the correct word/phrase)
+
+    Return the output in strict JSON format as a list of objects with fields:
+    - question
+    - answer
+
+    Text:
+    {full_text}
+
+    FIBs:
+    """
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    response = model.generate_content(prompt)
+    return response.text
+
 # ✅ Safe JSON parser
-def safe_json_parse(mcqs_raw):
+def safe_json_parse(raw_text):
     try:
-        match = re.search(r"\[.*\]", mcqs_raw, re.DOTALL)
+        match = re.search(r"\[.*\]", raw_text, re.DOTALL)
         if match:
-            mcqs_clean = match.group(0)
-            return json.loads(mcqs_clean)
+            clean = match.group(0)
+            return json.loads(clean)
         else:
             return None
     except Exception as e:
@@ -101,8 +122,8 @@ def safe_json_parse(mcqs_raw):
         return None
 
 # ✅ Streamlit UI
-st.set_page_config(page_title="PDF Chatbot (Gemini + Local RAG)", layout="centered")
-st.title("📄 Chat with your PDF (Gemini + Local Embeddings)")
+st.set_page_config(page_title="PDF Learning Assistant", layout="centered")
+st.title("📄  AuraLearn : Personilized learning atmosphere")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
@@ -111,55 +132,91 @@ if uploaded_file:
         documents, full_text = process_pdf(uploaded_file)
         vectorstore = create_vector_store(documents)
         retriever = vectorstore.as_retriever()
-    st.success("PDF processed! Ask your questions below.")
+    st.success("PDF processed!")
+
+    # Save full_text in session_state
+    st.session_state["full_text"] = full_text
 
     # ✅ Summary Button
     if st.button("Generate Summary"):
         with st.spinner("Summarizing PDF..."):
-            summary = generate_summary(full_text)
+            summary = generate_summary(st.session_state["full_text"])
         st.markdown("### 📌 Summary of PDF")
         st.write(summary)
 
-    # ✅ MCQ Button with Evaluation
-num_qs = st.slider("Number of MCQs", min_value=3, max_value=15, value=5)
+    # ✅ MCQ Section
+    num_qs = st.slider("Number of MCQs", min_value=3, max_value=15, value=5)
+    if st.button("Generate MCQs"):
+        with st.spinner("Creating MCQs..."):
+            mcqs_raw = generate_mcqs(st.session_state["full_text"], num_questions=num_qs)
 
-# Generate MCQs only once and store in session_state
-if st.button("Generate MCQs"):
-    with st.spinner("Creating MCQs..."):
-        mcqs_raw = generate_mcqs(full_text, num_questions=num_qs)
-    mcqs = safe_json_parse(mcqs_raw)
-    if mcqs:
-        st.session_state["mcqs"] = mcqs
-        st.session_state["user_answers"] = [None] * len(mcqs)
-    else:
-        st.error("⚠️ Could not parse MCQs properly. Showing raw output instead:")
-        st.write(mcqs_raw)
+        mcqs = safe_json_parse(mcqs_raw)
+        if mcqs:
+            st.session_state["mcqs"] = mcqs
+            st.session_state["user_answers"] = [None] * len(mcqs)
+        else:
+            st.error("⚠️ Could not parse MCQs properly. Showing raw output instead:")
+            st.write(mcqs_raw)
 
-# Show MCQs if they exist in session_state
-if "mcqs" in st.session_state:
-    mcqs = st.session_state["mcqs"]
-    st.markdown("### 📝 MCQs from PDF")
+    if "mcqs" in st.session_state:
+        mcqs = st.session_state["mcqs"]
+        st.markdown("### 📝 MCQs from PDF")
 
-    for i, q in enumerate(mcqs):
-        st.markdown(f"**Q{i+1}. {q['question']}**")
-        choice = st.radio(
-            f"Select your answer for Q{i+1}",
-            q["options"],
-            key=f"q{i}"
-        )
-        st.session_state["user_answers"][i] = choice
-
-    # ✅ Evaluation Button
-    if st.button("Evaluate Answers"):
-        score = 0
         for i, q in enumerate(mcqs):
-            correct_option = q["options"][q["answer"]]
-            if st.session_state["user_answers"][i] == correct_option:
-                score += 1
-                st.success(f"Q{i+1}: Correct ✅")
-            else:
-                st.error(f"Q{i+1}: Wrong ❌ (Correct: {correct_option})")
-        st.markdown(f"### 🎯 Final Score: {score}/{len(mcqs)}")
+            st.markdown(f"**Q{i+1}. {q['question']}**")
+            choice = st.radio(
+                f"Select your answer for Q{i+1}",
+                q["options"],
+                key=f"mcq{i}"
+            )
+            st.session_state["user_answers"][i] = choice
+
+        if st.button("Evaluate MCQs"):
+            score = 0
+            for i, q in enumerate(mcqs):
+                correct_option = q["options"][q["answer"]]
+                if st.session_state["user_answers"][i] == correct_option:
+                    score += 1
+                    st.success(f"Q{i+1}: Correct ✅")
+                else:
+                    st.error(f"Q{i+1}: Wrong ❌ (Correct: {correct_option})")
+            st.markdown(f"### 🎯 MCQ Score: {score}/{len(mcqs)}")
+
+    # ✅ Fill-in-the-Blanks Section
+    num_fib = st.slider("Number of Fill-in-the-Blanks", min_value=3, max_value=15, value=5)
+    if st.button("Generate Fill-in-the-Blanks"):
+        with st.spinner("Creating Fill-in-the-Blanks..."):
+            fib_raw = generate_fib(st.session_state["full_text"], num_questions=num_fib)
+
+        fibs = safe_json_parse(fib_raw)
+        if fibs:
+            st.session_state["fibs"] = fibs
+            st.session_state["fib_answers"] = [""] * len(fibs)
+        else:
+            st.error("⚠️ Could not parse FIBs properly. Showing raw output instead:")
+            st.write(fib_raw)
+
+    if "fibs" in st.session_state:
+        fibs = st.session_state["fibs"]
+        st.markdown("### ✏️ Fill-in-the-Blanks from PDF")
+
+        for i, q in enumerate(fibs):
+            st.markdown(f"**Q{i+1}. {q['question']}**")
+            ans = st.text_input(f"Your answer for Q{i+1}", key=f"fib{i}")
+            st.session_state["fib_answers"][i] = ans
+
+        if st.button("Evaluate FIBs"):
+            score = 0
+            for i, q in enumerate(fibs):
+                correct = q["answer"].strip().lower()
+                user_ans = st.session_state["fib_answers"][i].strip().lower()
+                if user_ans == correct:
+                    score += 1
+                    st.success(f"Q{i+1}: Correct ✅")
+                else:
+                    st.error(f"Q{i+1}: Wrong ❌ (Correct: {q['answer']})")
+            st.markdown(f"### 🎯 FIB Score: {score}/{len(fibs)}")
+
     # ✅ Q&A Section
     query = st.text_input("Ask a question about the PDF:")
     if query:
